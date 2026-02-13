@@ -7,3 +7,9 @@ spring:
     url: jdbc:postgresql://database:5432/database
     username: postgres
     password: secret
+
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 20MB
+      max-request-size: 20MB
