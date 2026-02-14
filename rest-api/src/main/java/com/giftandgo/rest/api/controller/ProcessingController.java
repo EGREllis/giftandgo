@@ -1,7 +1,9 @@
 package com.giftandgo.rest.api.controller;
 
+import com.giftandgo.rest.api.service.ProcessingService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -18,32 +20,13 @@ import java.util.UUID;
 @Slf4j
 @RestController
 public class ProcessingController {
+    @Autowired
+    private ProcessingService processingService;
 
     @RequestMapping(value="/process", method= RequestMethod.POST)
     public ResponseEntity process(@RequestParam("input")MultipartFile input, HttpServletRequest request) {
         UUID requestId = UUID.randomUUID();
         log.info("Processing new input file trace: {}", requestId);
-        File tempFile;
-        try {
-            tempFile = File.createTempFile(requestId.toString(), ".txt");
-        } catch (IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
-        byte[] data;
-        try (FileOutputStream tempOutput = new FileOutputStream(tempFile)) {
-            data = input.getBytes();
-            log.info("File {} size {}", requestId, data.length);
-            tempOutput.write(data);
-            tempOutput.flush();
-        } catch(IOException ioe) {
-            throw new RuntimeException(ioe);
-        }
-        log.info("Processed input file trace: {} at {}", requestId, tempFile.getAbsolutePath());
-
-        InputStreamResource resource = new InputStreamResource(new ByteArrayInputStream(data));
-        return ResponseEntity.ok()
-                .contentType(MediaType.APPLICATION_JSON)
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"OutcomeFile.json\"")
-                .body(resource);
+        return processingService.process(requestId, input, request);
     }
 }
