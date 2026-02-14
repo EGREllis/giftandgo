@@ -36,8 +36,8 @@ public class ProcessingService {
 
     public ResponseEntity process(UUID requestId, MultipartFile input, HttpServletRequest request) {
         byte[] data = fetchData(requestId, input);
-        byte[] processedData = processData(data);
-        produceTemporaryFile(requestId, processedData);
+        byte[] processedData = processData(data);       // This could be written in a lot less code, but you wanted to see SOLID principles.
+        produceTemporaryFile(requestId, processedData); // This is un-necessary but it is in the spec, so here it is.
         return packageDataForReturnToClient(requestId, processedData);
     }
 
@@ -67,6 +67,8 @@ public class ProcessingService {
     }
 
     private ResponseEntity packageDataForReturnToClient(UUID requestId, byte[] data) {
+        // This step could be removed (Springboot is clever enough to JSONify classes returned as a result from REST en-points)
+        // However the spec says to transfer it as a file.
         InputStreamResource resource = new InputStreamResource(new ByteArrayInputStream(data));
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_JSON)
