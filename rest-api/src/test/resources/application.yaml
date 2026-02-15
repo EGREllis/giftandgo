@@ -1,2 +1,7 @@
+feature:
+  flag:
+    validation:
+      enabled: true
+
 ip_api:
-  stem: "http://localhost"
+  stem: "http://localhost:8082"

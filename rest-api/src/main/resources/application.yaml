@@ -14,5 +14,10 @@ spring:
       max-file-size: 20MB
       max-request-size: 20MB
 
+feature:
+  flag:
+    validation:
+      enabled: true
+
 ip_api:
   stem: "http://ip-api.com"

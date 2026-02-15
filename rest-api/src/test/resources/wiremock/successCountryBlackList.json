@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "GET",
+    "url": "/json/0.0.0.1?fields=status,countryCode,isp,org"
+  },
+
+  "response": {
+    "status": 200,
+    "body": "{\"status\":\"success\",\"countryCode\":\"CN\",\"isp\":\"Le Groupe Videotron Ltee\",\"org\":\"Videotron Ltee\"}"
+  }
+}

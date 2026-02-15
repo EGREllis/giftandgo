@@ -7,11 +7,14 @@ import com.giftandgo.rest.api.model.RequestOutputLine;
 import com.giftandgo.rest.api.parser.RequestParser;
 import com.giftandgo.rest.api.validator.ValidationRecord;
 import com.giftandgo.rest.api.validator.Validator;
+import com.giftandgo.rest.api.validator.blacklist.BlackList;
 import jakarta.servlet.http.HttpServletRequest;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +27,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Slf4j
@@ -41,10 +45,24 @@ public class ProcessingService {
     @Autowired
     private Validator validator;
 
-    public ResponseEntity process(UUID requestId, MultipartFile input, HttpServletRequest request) {
+    @Autowired
+    private BlackList blackList;
+
+    @Value("${feature.flag.validation.enabled}")
+    private boolean isValidating;
+
+    public ResponseEntity<Resource> process(UUID requestId, MultipartFile input, HttpServletRequest request) {
         byte[] data = fetchData(requestId, input);
         byte[] processedData = processData(data);       // This could be written in a lot less code, but you wanted to see SOLID principles.
-        log.info(getValidationRecord(request).toString());
+        ValidationRecord validationRecord = getValidationRecord(request);
+        if (isFailure(validationRecord)) {
+            return rejection("Validation failure.");
+        } else {
+            Optional<String> blackListedMessage = blackList.excludeFromProcessing(validationRecord);
+            if (blackListedMessage.isPresent()) {
+                return rejection(blackListedMessage.get());
+            }
+        }
         produceTemporaryFile(requestId, processedData); // This is un-necessary but it is in the spec, so here it is.
         return packageDataForReturnToClient(requestId, processedData);
     }
@@ -74,9 +92,7 @@ public class ProcessingService {
         }
     }
 
-    private ResponseEntity packageDataForReturnToClient(UUID requestId, byte[] data) {
-        // This step could be removed (Springboot is clever enough to JSONify classes returned as a result from REST en-points)
-        // However the spec says to transfer it as a file.
+    private ResponseEntity<Resource> packageDataForReturnToClient(UUID requestId, byte[] data) {
         InputStreamResource resource = new InputStreamResource(new ByteArrayInputStream(data));
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_JSON)
@@ -109,5 +125,13 @@ public class ProcessingService {
     private ValidationRecord getValidationRecord(HttpServletRequest request) {
         String ipAddress = fetchIpAddress(request);
         return validator.validate(ipAddress);
+    }
+
+    private boolean isFailure(ValidationRecord record) {
+        return "fail".equalsIgnoreCase(record.status());
+    }
+
+    private ResponseEntity<Resource> rejection(String message) {
+        return ResponseEntity.status(403).body(new InputStreamResource(new ByteArrayInputStream(message.getBytes())));
     }
 }

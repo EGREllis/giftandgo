@@ -3,6 +3,7 @@ package com.giftandgo.rest.api.controller;
 import com.giftandgo.rest.api.service.ProcessingService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -18,7 +19,7 @@ public class ProcessingController {
     private ProcessingService processingService;
 
     @RequestMapping(value="/process", method= RequestMethod.POST)
-    public ResponseEntity process(@RequestParam("input")MultipartFile input, HttpServletRequest request) {
+    public ResponseEntity<Resource> process(@RequestParam("input")MultipartFile input, HttpServletRequest request) {
         UUID requestId = UUID.randomUUID();
         return processingService.process(requestId, input, request);
     }
