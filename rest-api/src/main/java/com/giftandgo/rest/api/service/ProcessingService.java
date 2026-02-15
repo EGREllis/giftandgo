@@ -86,4 +86,15 @@ public class ProcessingService {
         String result = formatter.format(outputLines);
         return result.getBytes();
     }
+
+    private String fetchIpAddress(HttpServletRequest request) {
+        String ipAddress;
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor == null) {
+            ipAddress = request.getRemoteAddr().trim();
+        } else {
+            ipAddress = forwardedFor.split(",")[0].trim();
+        }
+        return ipAddress;
+    }
 }
