@@ -55,12 +55,14 @@ public class ProcessingService {
         byte[] data = fetchData(requestId, input);
         byte[] processedData = processData(data);       // This could be written in a lot less code, but you wanted to see SOLID principles.
         ValidationRecord validationRecord = getValidationRecord(request);
-        if (isFailure(validationRecord)) {
-            return rejection("Validation failure.");
-        } else {
-            Optional<String> blackListedMessage = blackList.excludeFromProcessing(validationRecord);
-            if (blackListedMessage.isPresent()) {
-                return rejection(blackListedMessage.get());
+        if (isValidating) {
+            if (isFailure(validationRecord)) {
+                return rejection("Validation failure.");
+            } else {
+                Optional<String> blackListedMessage = blackList.excludeFromProcessing(validationRecord);
+                if (blackListedMessage.isPresent()) {
+                    return rejection(blackListedMessage.get());
+                }
             }
         }
         produceTemporaryFile(requestId, processedData); // This is un-necessary but it is in the spec, so here it is.
