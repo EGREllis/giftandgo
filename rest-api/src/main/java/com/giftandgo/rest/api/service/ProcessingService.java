@@ -5,8 +5,11 @@ import com.giftandgo.rest.api.formatter.Formatter;
 import com.giftandgo.rest.api.model.RequestInputLine;
 import com.giftandgo.rest.api.model.RequestOutputLine;
 import com.giftandgo.rest.api.parser.RequestParser;
+import com.giftandgo.rest.api.validator.ValidationRecord;
+import com.giftandgo.rest.api.validator.Validator;
 import jakarta.servlet.http.HttpServletRequest;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
@@ -23,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Component
 public class ProcessingService {
     @Autowired
@@ -34,9 +38,13 @@ public class ProcessingService {
     @Autowired
     private Formatter<List<RequestOutputLine>> formatter;
 
+    @Autowired
+    private Validator validator;
+
     public ResponseEntity process(UUID requestId, MultipartFile input, HttpServletRequest request) {
         byte[] data = fetchData(requestId, input);
         byte[] processedData = processData(data);       // This could be written in a lot less code, but you wanted to see SOLID principles.
+        log.info(getValidationRecord(request).toString());
         produceTemporaryFile(requestId, processedData); // This is un-necessary but it is in the spec, so here it is.
         return packageDataForReturnToClient(requestId, processedData);
     }
@@ -96,5 +104,10 @@ public class ProcessingService {
             ipAddress = forwardedFor.split(",")[0].trim();
         }
         return ipAddress;
+    }
+
+    private ValidationRecord getValidationRecord(HttpServletRequest request) {
+        String ipAddress = fetchIpAddress(request);
+        return validator.validate(ipAddress);
     }
 }

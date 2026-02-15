@@ -1,5 +1,10 @@
 package com.giftandgo.rest.api.validator;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -7,17 +12,21 @@ import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
 
+@Configuration
+@Component
 public class IpApiSource implements Source<String> {
     private static final int READ_TIMEOUT = 5000;
     private static final int CONNECTION_TIMEOUT = 5000;
     private static final String IP_QUERY_FORMAT = "/json/%1$s?fields=status,countryCode,isp,org";
 
+
     private final String stem;
 
-    private IpApiSource(String stem) {
+    public IpApiSource(@Value("${ip_api.stem}") String stem) {
         this.stem = stem;
     }
 
+    @Bean
     public static IpApiSource getProductionIpApiSource() {
         return new IpApiSource("http://ip-api.com");
     }
