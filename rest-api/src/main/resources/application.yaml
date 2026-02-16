@@ -1,13 +1,11 @@
 spring:
   application:
     name: rest-api
-
   datasource:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://database:5432/database
     username: postgres
     password: secret
-
   servlet:
     multipart:
       enabled: true

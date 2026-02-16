@@ -2,9 +2,12 @@ package com.giftandgo.rest.api.service;
 
 import com.giftandgo.rest.api.converter.Converter;
 import com.giftandgo.rest.api.formatter.Formatter;
+import com.giftandgo.rest.api.model.Request;
 import com.giftandgo.rest.api.model.RequestInputLine;
 import com.giftandgo.rest.api.model.RequestOutputLine;
+import com.giftandgo.rest.api.model.RequestStart;
 import com.giftandgo.rest.api.parser.RequestParser;
+import com.giftandgo.rest.api.repository.RequestRepository;
 import com.giftandgo.rest.api.validator.ValidationRecord;
 import com.giftandgo.rest.api.validator.Validator;
 import com.giftandgo.rest.api.validator.blacklist.BlackList;
@@ -25,6 +28,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -48,28 +53,39 @@ public class ProcessingService {
     @Autowired
     private BlackList blackList;
 
+    @Autowired
+    private RequestRepository requestRepository;
+
+    @Autowired
+    private Clock clock;
+
     @Value("${feature.flag.validation.enabled}")
     private boolean isValidating;
 
     public ResponseEntity<Resource> process(UUID requestId, MultipartFile input, HttpServletRequest request) {
-        byte[] data = fetchData(requestId, input);
-        byte[] processedData = processData(data);       // This could be written in a lot less code, but you wanted to see SOLID principles.
-        ValidationRecord validationRecord = getValidationRecord(request);
+        RequestStart start = new RequestStart(requestId, request.getRequestURI(), OffsetDateTime.now(clock), System.currentTimeMillis());
+
+        // This could be done optimistically in parrallel with the validation checks.
+        byte[] data = fetchData(input);
+        byte[] processedData = processData(data);
+
+        String ipAddress = fetchIpAddress(request);
+        ValidationRecord validationRecord = getValidationRecord(ipAddress);
         if (isValidating) {
             if (isFailure(validationRecord)) {
-                return rejection("Validation failure.");
+                return rejection("Validation failure.", ipAddress, validationRecord, start);
             } else {
                 Optional<String> blackListedMessage = blackList.excludeFromProcessing(validationRecord);
                 if (blackListedMessage.isPresent()) {
-                    return rejection(blackListedMessage.get());
+                    return rejection(blackListedMessage.get(), ipAddress, validationRecord, start);
                 }
             }
         }
         produceTemporaryFile(requestId, processedData); // This is un-necessary but it is in the spec, so here it is.
-        return packageDataForReturnToClient(requestId, processedData);
+        return packageDataForReturnToClient(processedData, ipAddress, validationRecord, start);
     }
 
-    private byte[] fetchData(UUID requestId, MultipartFile multipartFile) {
+    private byte[] fetchData(MultipartFile multipartFile) {
         byte[] data;
         try {
             data = multipartFile.getBytes();
@@ -94,7 +110,8 @@ public class ProcessingService {
         }
     }
 
-    private ResponseEntity<Resource> packageDataForReturnToClient(UUID requestId, byte[] data) {
+    private ResponseEntity<Resource> packageDataForReturnToClient(byte[] data, String ipAddress, ValidationRecord record, RequestStart start) {
+        logRequestToDatabase(200, ipAddress, record, start);
         InputStreamResource resource = new InputStreamResource(new ByteArrayInputStream(data));
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_JSON)
@@ -124,8 +141,7 @@ public class ProcessingService {
         return ipAddress;
     }
 
-    private ValidationRecord getValidationRecord(HttpServletRequest request) {
-        String ipAddress = fetchIpAddress(request);
+    private ValidationRecord getValidationRecord(String ipAddress) {
         return validator.validate(ipAddress);
     }
 
@@ -133,7 +149,17 @@ public class ProcessingService {
         return "fail".equalsIgnoreCase(record.status());
     }
 
-    private ResponseEntity<Resource> rejection(String message) {
-        return ResponseEntity.status(403).body(new InputStreamResource(new ByteArrayInputStream(message.getBytes())));
+    private ResponseEntity<Resource> rejection(String message, String ipAddress, ValidationRecord record, RequestStart start) {
+        int statusCode = 403;
+        logRequestToDatabase(statusCode, ipAddress, record, start);
+        return ResponseEntity.status(statusCode).body(new InputStreamResource(new ByteArrayInputStream(message.getBytes())));
+    }
+
+    private void logRequestToDatabase(int statusCode, String ipAddress, ValidationRecord record, RequestStart start) {
+        long endMillis = System.currentTimeMillis();
+        Request request = new Request(
+                start.requestId(), start.requestUrl(), start.timestamp(),
+                statusCode, ipAddress, record.countryCode(), record.isp(), endMillis - start.startMillis());
+        requestRepository.insert(request);
     }
 }

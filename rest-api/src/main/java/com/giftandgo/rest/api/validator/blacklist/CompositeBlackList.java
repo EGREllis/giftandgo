@@ -15,7 +15,7 @@ public class CompositeBlackList implements BlackList {
     }
 
     public CompositeBlackList() {
-        // This could be done better.
+        // These should really be injected.  Could be done by implementing a different interface and @Autowiring an array.
         this(List.of(new InMemoryCountryBlackList(), new InMemoryIspBlackList()));
     }
 
