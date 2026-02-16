@@ -1,15 +1,8 @@
 package com.giftandgo.rest.api.service;
 
-import com.giftandgo.rest.api.converter.Converter;
-import com.giftandgo.rest.api.formatter.Formatter;
-import com.giftandgo.rest.api.model.Request;
-import com.giftandgo.rest.api.model.RequestInputLine;
-import com.giftandgo.rest.api.model.RequestOutputLine;
 import com.giftandgo.rest.api.model.RequestStart;
-import com.giftandgo.rest.api.parser.RequestParser;
-import com.giftandgo.rest.api.repository.RequestRepository;
+import com.giftandgo.rest.api.task.TaskFactory;
 import com.giftandgo.rest.api.validator.ValidationRecord;
-import com.giftandgo.rest.api.validator.Validator;
 import com.giftandgo.rest.api.validator.blacklist.BlackList;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -25,39 +18,29 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 
 @Slf4j
 @Component
 public class ProcessingService {
     @Autowired
-    private RequestParser requestParser;
-
-    @Autowired
-    private Converter<RequestInputLine, RequestOutputLine> requestConverter;
-
-    @Autowired
-    private Formatter<List<RequestOutputLine>> formatter;
-
-    @Autowired
-    private Validator validator;
-
-    @Autowired
     private BlackList blackList;
 
     @Autowired
-    private RequestRepository requestRepository;
+    private Clock clock;
 
     @Autowired
-    private Clock clock;
+    private ExecutorService executorService;
+
+    @Autowired
+    private TaskFactory taskFactory;
 
     @Value("${feature.flag.validation.enabled}")
     private boolean isValidating;
@@ -65,12 +48,17 @@ public class ProcessingService {
     public ResponseEntity<Resource> process(UUID requestId, MultipartFile input, HttpServletRequest request) {
         RequestStart start = new RequestStart(requestId, request.getRequestURI(), OffsetDateTime.now(clock), System.currentTimeMillis());
 
-        // This could be done optimistically in parrallel with the validation checks.
-        byte[] data = fetchData(input);
-        byte[] processedData = processData(data);
+        // Optimistically process the data.
+        Callable<byte[]> dataProcessing = taskFactory.processDataTask(input);
+        Future<byte[]> myProcessedData = executorService.submit(dataProcessing);
 
+        // Fetch the validation data from ip-api concurrently - doesn't really save much time as we wait for it immediately
         String ipAddress = fetchIpAddress(request);
-        ValidationRecord validationRecord = getValidationRecord(ipAddress);
+        Callable<ValidationRecord> validationTask = taskFactory.fetchValidationRecord(ipAddress);
+        Future<ValidationRecord> myValidationRecord = executorService.submit(validationTask);
+
+        // Decided what to do.
+        ValidationRecord validationRecord = get(myValidationRecord);
         if (isValidating) {
             if (isFailure(validationRecord)) {
                 return rejection("Validation failure.", ipAddress, validationRecord, start);
@@ -81,33 +69,19 @@ public class ProcessingService {
                 }
             }
         }
-        produceTemporaryFile(requestId, processedData); // This is un-necessary but it is in the spec, so here it is.
+        byte[] processedData = get(myProcessedData);
+        executorService.submit(taskFactory.createTemporaryFile(requestId, processedData));
         return packageDataForReturnToClient(processedData, ipAddress, validationRecord, start);
     }
 
-    private byte[] fetchData(MultipartFile multipartFile) {
-        byte[] data;
+    private static <T> T get(Future<T> future) {
+        T result;
         try {
-            data = multipartFile.getBytes();
-        } catch (IOException ioe) {
-            throw new RuntimeException("Exception while fetching input data.", ioe);
+            result = future.get();
+        } catch(InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
         }
-        return data;
-    }
-
-    private void produceTemporaryFile(UUID requestId, byte[] data) {
-        File tempFile;
-        try {
-            tempFile = File.createTempFile(requestId.toString(), ".txt");
-        } catch (IOException ioe) {
-            throw new RuntimeException("Exception creating temp file.", ioe);
-        }
-        try (FileOutputStream tempOutput = new FileOutputStream(tempFile)) {
-            tempOutput.write(data);
-            tempOutput.flush();
-        } catch(IOException ioe) {
-            throw new RuntimeException("Exception writing to temp file.", ioe);
-        }
+        return result;
     }
 
     private ResponseEntity<Resource> packageDataForReturnToClient(byte[] data, String ipAddress, ValidationRecord record, RequestStart start) {
@@ -119,17 +93,6 @@ public class ProcessingService {
                 .body(resource);
     }
 
-    private byte[] processData(byte[] data) {
-        List<RequestInputLine> inputLines = requestParser.parse(data);
-        List<RequestOutputLine> outputLines = new ArrayList<>(inputLines.size());
-        for (RequestInputLine input : inputLines) {
-            RequestOutputLine output = requestConverter.convert(input);
-            outputLines.add(output);
-        }
-        String result = formatter.format(outputLines);
-        return result.getBytes();
-    }
-
     private String fetchIpAddress(HttpServletRequest request) {
         String ipAddress;
         String forwardedFor = request.getHeader("X-Forwarded-For");
@@ -139,10 +102,6 @@ public class ProcessingService {
             ipAddress = forwardedFor.split(",")[0].trim();
         }
         return ipAddress;
-    }
-
-    private ValidationRecord getValidationRecord(String ipAddress) {
-        return validator.validate(ipAddress);
     }
 
     private boolean isFailure(ValidationRecord record) {
@@ -157,9 +116,6 @@ public class ProcessingService {
 
     private void logRequestToDatabase(int statusCode, String ipAddress, ValidationRecord record, RequestStart start) {
         long endMillis = System.currentTimeMillis();
-        Request request = new Request(
-                start.requestId(), start.requestUrl(), start.timestamp(),
-                statusCode, ipAddress, record.countryCode(), record.isp(), endMillis - start.startMillis());
-        requestRepository.insert(request);
+        executorService.submit(taskFactory.persistRequestToDatabase(statusCode, ipAddress, record, start, endMillis));
     }
 }
