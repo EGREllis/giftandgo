@@ -7,7 +7,7 @@ To test use either ./test.sh (for your own ip) or ./testCanada.sh using the IP a
 
 Data processing is fully implemented and tested automatically.
 Validation with feature flag is fully implemented and tested automatically.
-Database functionality implemented.
+Database functionality implemented but no integration tests.
 
 Known features/issues:
 1) If any line submitted is inaccurate, Exceptions are thrown and the whole batch is aborted.
@@ -15,7 +15,8 @@ Known features/issues:
 Improvements if I spent more time:
 a) The iterate.sh script does not exit early if maven fails to build - could be fixed by checking $?.
 b) The first request takes longer than any other.  Could warm itself by making requests at application start.
-c) Some of the processes are independent of each other.  Could be improved by executing in parrallel - for example the validation and the data processing.
+
+I made a concurrent version (see the "concurrent" branch).
 
 Had some fun, would appreciate feedback.
 
